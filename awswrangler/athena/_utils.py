@@ -45,6 +45,14 @@ class _WorkGroupConfig(NamedTuple):
     kms_key: Optional[str]
 
 
+def _substitute_sql_params(sql: str, params: Optional[Dict[str, Any]] = None) -> str:
+    if params is None:
+        params = {}
+    for key, value in params.items():
+        sql = sql.replace(f":{key};", str(value))
+    return sql
+
+
 def _get_s3_output(s3_output: Optional[str], wg_config: _WorkGroupConfig, boto3_session: boto3.Session) -> str:
     if wg_config.enforced and wg_config.s3_output is not None:
         return wg_config.s3_output

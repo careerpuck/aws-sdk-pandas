@@ -22,6 +22,7 @@ from awswrangler.athena._utils import (
     _get_workgroup_config,
     _QueryMetadata,
     _start_query_execution,
+    _substitute_sql_params,
     _WorkGroupConfig,
     create_ctas_table,
 )
@@ -948,13 +949,10 @@ def read_sql_query(  # pylint: disable=too-many-arguments,too-many-locals
     if unload_parameters and unload_parameters.get("file_format") not in (None, "PARQUET"):
         raise exceptions.InvalidArgumentCombination("Only PARQUET file format is supported if unload_approach=True")
     chunksize = sys.maxsize if ctas_approach is False and chunksize is True else chunksize
-    if params is None:
-        params = {}
-    for key, value in params.items():
-        sql = sql.replace(f":{key};", str(value))
+
+    sql = _substitute_sql_params(sql, params)
 
     max_remote_cache_entries = min(max_remote_cache_entries, max_local_cache_entries)
-
     _cache_manager.max_cache_size = max_local_cache_entries
     cache_info: _CacheInfo = _check_for_cached_results(
         sql=sql,

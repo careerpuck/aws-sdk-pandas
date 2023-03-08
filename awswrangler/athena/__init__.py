@@ -18,12 +18,14 @@ from awswrangler.athena._utils import (  # noqa
     stop_query_execution,
     wait_query,
 )
+from awswrangler.athena._write import insert_into
 
 __all__ = [
     "read_sql_query",
     "read_sql_table",
     "create_athena_bucket",
     "describe_table",
+    "insert_into",
     "get_query_columns_types",
     "get_query_execution",
     "get_query_executions",

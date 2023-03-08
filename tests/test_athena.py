@@ -123,6 +123,47 @@ def test_athena_ctas(path, path2, path3, glue_table, glue_table2, glue_database,
     assert len(wr.s3.list_objects(path=path3)) == 0
 
 
+def test_athena_insert_into(path, path2, glue_table, glue_table2, glue_database):
+    df1 = pd.DataFrame({"c0": [0, 1, 2], "c1": ["foo", "bar", "bam"], "par0": ["a", "b", "c"]})
+    df2 = pd.DataFrame({"c0": [3, 4], "c1": ["fizz", "buzz"], "par0": ["a", "b"]})
+
+    wr.s3.to_parquet(
+        df=df1,
+        path=path,
+        dataset=True,
+        mode="append",
+        database=glue_database,
+        table=glue_table,
+        partition_cols=["par0"],
+    )
+    wr.s3.to_parquet(
+        df=df2,
+        path=path2,
+        dataset=True,
+        mode="append",
+        database=glue_database,
+        table=glue_table2,
+        partition_cols=["par0"],
+    )
+    # Create table from table 1
+    wr.athena.create_ctas_table(
+        sql=f"select * from {glue_table}",
+        database=glue_database,
+        wait=True,
+    )
+
+    # Append data with insert into from table 2
+    wr.athena.insert_into(
+        sql=f"select * from {glue_table2}",
+        database=glue_database,
+        table=glue_table,
+        mode="append",
+    )
+    # Read the data back
+    df3 = wr.athena.read_sql_table(table=glue_table, database=glue_database)
+    assert df3.shape == (5, 3)
+
+
 def test_athena_read_sql_ctas_bucketing(path, path2, glue_table, glue_table2, glue_database, glue_ctas_database):
     df = pd.DataFrame({"c0": [0, 1], "c1": ["foo", "bar"]})
     wr.s3.to_parquet(
