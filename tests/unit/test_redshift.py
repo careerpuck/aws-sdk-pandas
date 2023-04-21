@@ -1327,3 +1327,23 @@ def test_to_sql_with_identity_column(redshift_table: str, redshift_con: redshift
     assert len(df_out) == len(df)
     assert df_out["id"].to_list() == list(range(1, len(df) + 1))
     assert df_out["foo"].to_list() == df["foo"].to_list()
+
+
+@pytest.mark.parametrize("precision,scale", [(1, 0), (2, 1), (38, 0), (38, 20), (38, 37)])
+def test_overflow_sql_unload(
+    redshift_table: str, redshift_con: redshift_connector.Connection, path: str, precision: int, scale: int
+) -> None:
+    with redshift_con.cursor() as cursor:
+        cursor.execute(
+            f"CREATE TABLE public.{redshift_table}(c0 integer not null, c1 numeric({precision}, {scale}), primary key(c0));"
+        )
+        cursor.execute(f"INSERT INTO public.{redshift_table} VALUES (1, {'9' * (precision - scale)}.{'9' * scale});")
+        cursor.execute(f"INSERT INTO public.{redshift_table} VALUES (2, -{'9' * (precision - scale)}.{'9' * scale});")
+
+    query = f"SELECT c0, c1 p FROM public.{redshift_table}"
+
+    df1 = wr.redshift.read_sql_query(query, con=redshift_con)
+    df2 = wr.redshift.unload(query, con=redshift_con, path=path)
+
+    assert df1.p.min() == df2.p.min()
+    assert df1.p.max() == df2.p.max()
