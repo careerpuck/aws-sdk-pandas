@@ -14,7 +14,6 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    overload,
 )
 
 import boto3
@@ -180,50 +179,6 @@ def connect(
     return oracle_connection
 
 
-@overload
-def read_sql_query(
-    sql: str,
-    con: "oracledb.Connection",
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: None = ...,
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    con: "oracledb.Connection",
-    *,
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: int,
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    con: "oracledb.Connection",
-    *,
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: Optional[int],
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
 @_utils.check_optional_dependency(oracledb, "oracledb")
 def read_sql_query(
     sql: str,
@@ -288,53 +243,6 @@ def read_sql_query(
         safe=safe,
         timestamp_as_object=timestamp_as_object,
     )
-
-
-@overload
-def read_sql_table(
-    table: str,
-    con: "oracledb.Connection",
-    schema: Optional[str] = ...,
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: None = ...,
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    con: "oracledb.Connection",
-    *,
-    schema: Optional[str] = ...,
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: int,
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    con: "oracledb.Connection",
-    *,
-    schema: Optional[str] = ...,
-    index_col: Optional[Union[str, List[str]]] = ...,
-    params: Optional[Union[List[Any], Tuple[Any, ...], Dict[Any, Any]]] = ...,
-    chunksize: Optional[int],
-    dtype: Optional[Dict[str, pa.DataType]] = ...,
-    safe: bool = ...,
-    timestamp_as_object: bool = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
 
 
 @_utils.check_optional_dependency(oracledb, "oracledb")
