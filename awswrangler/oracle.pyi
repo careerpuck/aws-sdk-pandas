@@ -97,11 +97,12 @@ def to_sql(  # noqa: D103
     con: "oracledb.Connection",
     table: str,
     schema: str,
-    mode: Literal["append", "overwrite"] = ...,
+    mode: Literal["append", "overwrite", "upsert"] = ...,
     index: bool = ...,
     dtype: Optional[Dict[str, str]] = ...,
     varchar_lengths: Optional[Dict[str, int]] = ...,
     use_column_names: bool = ...,
+    primary_keys: Optional[List[str]] = ...,
     chunksize: int = ...,
 ) -> None: ...
 def detect_oracle_decimal_datatype(cursor: Any) -> Dict[str, pa.DataType]: ...  # noqa: D103

@@ -4,7 +4,7 @@ import itertools
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Literal, Optional, Union, cast, overload
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union, cast
 
 import boto3
 from botocore.config import Config
@@ -18,14 +18,20 @@ from awswrangler.distributed.ray import ray_get
 from awswrangler.typing import TimestreamBatchLoadReportS3Configuration
 
 if TYPE_CHECKING:
-    from mypy_boto3_timestream_query.type_defs import PaginatorConfigTypeDef, QueryResponseTypeDef, RowTypeDef
     from mypy_boto3_timestream_write.client import TimestreamWriteClient
 
 _BATCH_LOAD_FINAL_STATES: List[str] = ["SUCCEEDED", "FAILED", "PROGRESS_STOPPED", "PENDING_RESUME"]
 _BATCH_LOAD_WAIT_POLLING_DELAY: float = 2  # SECONDS
-_TIME_UNITS = ["MILLISECONDS", "SECONDS", "MICROSECONDS", "NANOSECONDS"]
+_TIME_UNITS_MAPPING = {
+    "SECONDS": (9, 0),
+    "MILLISECONDS": (6, 3),
+    "MICROSECONDS": (3, 6),
+    "NANOSECONDS": (0, 9),
+}
 
 _logger: logging.Logger = logging.getLogger(__name__)
+
+_TimeUnitLiteral = Literal["MILLISECONDS", "SECONDS", "MICROSECONDS", "NANOSECONDS"]
 
 
 def _df2list(df: pd.DataFrame) -> List[List[Any]]:
@@ -40,18 +46,29 @@ def _df2list(df: pd.DataFrame) -> List[List[Any]]:
     return parameters
 
 
-def _format_timestamp(timestamp: Union[int, datetime]) -> str:
+def _check_time_unit(time_unit: _TimeUnitLiteral) -> str:
+    time_unit = time_unit if time_unit else "MILLISECONDS"
+    if time_unit not in _TIME_UNITS_MAPPING.keys():
+        raise exceptions.InvalidArgumentValue(
+            f"Invalid time unit: {time_unit}. Must be one of {_TIME_UNITS_MAPPING.keys()}."
+        )
+    return time_unit
+
+
+def _format_timestamp(timestamp: Union[int, datetime], time_unit: _TimeUnitLiteral) -> str:
     if isinstance(timestamp, int):
-        return str(round(timestamp / 1_000_000))
+        return str(round(timestamp / pow(10, _TIME_UNITS_MAPPING[time_unit][0])))
     if isinstance(timestamp, datetime):
-        return str(round(timestamp.timestamp() * 1_000))
+        return str(round(timestamp.timestamp() * pow(10, _TIME_UNITS_MAPPING[time_unit][1])))
     raise exceptions.InvalidArgumentType("`time_col` must be of type timestamp.")
 
 
-def _format_measure(measure_name: str, measure_value: Any, measure_type: str) -> Dict[str, str]:
+def _format_measure(
+    measure_name: str, measure_value: Any, measure_type: str, time_unit: _TimeUnitLiteral
+) -> Dict[str, str]:
     return {
         "Name": measure_name,
-        "Value": _format_timestamp(measure_value) if measure_type == "TIMESTAMP" else str(measure_value),
+        "Value": _format_timestamp(measure_value, time_unit) if measure_type == "TIMESTAMP" else str(measure_value),
         "Type": measure_type,
     }
 
@@ -59,17 +76,16 @@ def _format_measure(measure_name: str, measure_value: Any, measure_type: str) ->
 def _sanitize_common_attributes(
     common_attributes: Optional[Dict[str, Any]],
     version: int,
+    time_unit: _TimeUnitLiteral,
     measure_name: Optional[str],
 ) -> Dict[str, Any]:
     common_attributes = {} if not common_attributes else common_attributes
     # Values in common_attributes take precedence
     common_attributes.setdefault("Version", version)
+    common_attributes.setdefault("TimeUnit", _check_time_unit(common_attributes.get("TimeUnit", time_unit)))
 
-    if "Time" not in common_attributes:
-        # TimeUnit is MILLISECONDS by default for Timestream writes
-        # But if a time_col is supplied (i.e. Time is not in common_attributes)
-        # then TimeUnit must be set to MILLISECONDS explicitly
-        common_attributes["TimeUnit"] = "MILLISECONDS"
+    if "Time" not in common_attributes and common_attributes["TimeUnit"] == "NANOSECONDS":
+        raise exceptions.InvalidArgumentValue("Python datetime objects do not support nanoseconds precision.")
 
     if "MeasureValue" in common_attributes and "MeasureValueType" not in common_attributes:
         raise exceptions.InvalidArgumentCombination(
@@ -109,11 +125,12 @@ def _write_batch(
     elif all(v is None for v in cols_names[:2]):
         # Time and Measures are supplied in common_attributes
         dimensions_cols_loc = 0
+    time_unit = common_attributes["TimeUnit"]
 
     for row in batch:
         record: Dict[str, Any] = {}
         if "Time" not in common_attributes:
-            record["Time"] = _format_timestamp(row[time_loc])
+            record["Time"] = _format_timestamp(row[time_loc], time_unit)
         if scalar and "MeasureValue" not in common_attributes:
             measure_value = row[measure_cols_loc]
             if pd.isnull(measure_value):
@@ -121,7 +138,7 @@ def _write_batch(
             record["MeasureValue"] = str(measure_value)
         elif not scalar and "MeasureValues" not in common_attributes:
             record["MeasureValues"] = [
-                _format_measure(measure_name, measure_value, measure_value_type)  # type: ignore[arg-type]
+                _format_measure(measure_name, measure_value, measure_value_type, time_unit)  # type: ignore[arg-type]
                 for measure_name, measure_value, measure_value_type in zip(
                     measure_cols, row[measure_cols_loc:dimensions_cols_loc], measure_types
                 )
@@ -198,103 +215,6 @@ def _write_df(
     )
 
 
-def _cast_value(value: str, dtype: str) -> Any:  # pylint: disable=too-many-branches,too-many-return-statements
-    if dtype == "VARCHAR":
-        return value
-    if dtype in ("INTEGER", "BIGINT"):
-        return int(value)
-    if dtype == "DOUBLE":
-        return float(value)
-    if dtype == "BOOLEAN":
-        return value.lower() == "true"
-    if dtype == "TIMESTAMP":
-        return datetime.strptime(value[:-3], "%Y-%m-%d %H:%M:%S.%f")
-    if dtype == "DATE":
-        return datetime.strptime(value, "%Y-%m-%d").date()
-    if dtype == "TIME":
-        return datetime.strptime(value[:-3], "%H:%M:%S.%f").time()
-    if dtype == "ARRAY":
-        return str(value)
-    raise ValueError(f"Not supported Amazon Timestream type: {dtype}")
-
-
-def _process_row(schema: List[Dict[str, str]], row: "RowTypeDef") -> List[Any]:
-    row_processed: List[Any] = []
-    for col_schema, col in zip(schema, row["Data"]):
-        if col.get("NullValue", False):
-            row_processed.append(None)
-        elif "ScalarValue" in col:
-            row_processed.append(_cast_value(value=col["ScalarValue"], dtype=col_schema["type"]))
-        elif "ArrayValue" in col:
-            row_processed.append(_cast_value(value=col["ArrayValue"], dtype="ARRAY"))  # type: ignore[arg-type]
-        else:
-            raise ValueError(
-                f"Query with non ScalarType/ArrayColumnInfo/NullValue for column {col_schema['name']}. "
-                f"Expected {col_schema['type']} instead of {col}"
-            )
-    return row_processed
-
-
-def _rows_to_df(
-    rows: List[List[Any]], schema: List[Dict[str, str]], df_metadata: Optional[Dict[str, str]] = None
-) -> pd.DataFrame:
-    df = pd.DataFrame(data=rows, columns=[c["name"] for c in schema])
-    if df_metadata:
-        try:
-            df.attrs = df_metadata
-        except AttributeError as ex:
-            # Modin does not support attribute assignment
-            _logger.error(ex)
-    for col in schema:
-        if col["type"] == "VARCHAR":
-            df[col["name"]] = df[col["name"]].astype("string")
-    return df
-
-
-def _process_schema(page: "QueryResponseTypeDef") -> List[Dict[str, str]]:
-    schema: List[Dict[str, str]] = []
-    for col in page["ColumnInfo"]:
-        if "ScalarType" in col["Type"]:
-            schema.append({"name": col["Name"], "type": col["Type"]["ScalarType"]})
-        elif "ArrayColumnInfo" in col["Type"]:
-            schema.append({"name": col["Name"], "type": col["Type"]["ArrayColumnInfo"]})
-        else:
-            raise ValueError(f"Query with non ScalarType or ArrayColumnInfo for column {col['Name']}: {col['Type']}")
-    return schema
-
-
-def _paginate_query(
-    sql: str,
-    chunked: bool,
-    pagination_config: Optional["PaginatorConfigTypeDef"],
-    boto3_session: Optional[boto3.Session] = None,
-) -> Iterator[pd.DataFrame]:
-    client = _utils.client(
-        service_name="timestream-query",
-        session=boto3_session,
-        botocore_config=Config(read_timeout=60, retries={"max_attempts": 10}),
-    )
-    paginator = client.get_paginator("query")
-    rows: List[List[Any]] = []
-    schema: List[Dict[str, str]] = []
-    page_iterator = paginator.paginate(QueryString=sql, PaginationConfig=pagination_config or {})
-    for page in page_iterator:
-        if not schema:
-            schema = _process_schema(page=page)
-            _logger.debug("schema: %s", schema)
-        for row in page["Rows"]:
-            rows.append(_process_row(schema=schema, row=row))
-        if len(rows) > 0:
-            df_metadata = {}
-            if chunked:
-                if "NextToken" in page:
-                    df_metadata["NextToken"] = page["NextToken"]
-                df_metadata["QueryId"] = page["QueryId"]
-
-            yield _rows_to_df(rows, schema, df_metadata)
-        rows = []
-
-
 @_utils.validate_distributed_kwargs(
     unsupported_kwargs=["boto3_session"],
 )
@@ -306,6 +226,7 @@ def write(
     measure_col: Union[str, List[Optional[str]], None] = None,
     dimensions_cols: Optional[List[Optional[str]]] = None,
     version: int = 1,
+    time_unit: _TimeUnitLiteral = "MILLISECONDS",
     use_threads: Union[bool, int] = True,
     measure_name: Optional[str] = None,
     common_attributes: Optional[Dict[str, Any]] = None,
@@ -323,7 +244,8 @@ def write(
 
     Note
     ----
-    If ``time_col`` column is supplied, it must be of type timestamp. ``TimeUnit`` is set to MILLISECONDS by default.
+    If ``time_col`` column is supplied, it must be of type timestamp. ``time_unit`` is set to MILLISECONDS by default.
+    NANOSECONDS is not supported as python datetime objects are limited to microseconds precision.
 
     Parameters
     ----------
@@ -342,6 +264,8 @@ def write(
     version : int
         Version number used for upserts.
         Documentation https://docs.aws.amazon.com/timestream/latest/developerguide/API_WriteRecords.html.
+    time_unit : str, optional
+        Time unit for the time column. MILLISECONDS by default.
     use_threads : bool, int
         True to enable concurrent writing, False to disable multiple threads.
         If enabled, os.cpu_count() is used as the number of threads.
@@ -408,7 +332,7 @@ def write(
     dimensions_cols = dimensions_cols if dimensions_cols else [dimensions_cols]  # type: ignore[list-item]
     cols_names: List[Optional[str]] = [time_col] + measure_cols + dimensions_cols
     measure_name = measure_name if measure_name else measure_cols[0]
-    common_attributes = _sanitize_common_attributes(common_attributes, version, measure_name)
+    common_attributes = _sanitize_common_attributes(common_attributes, version, time_unit, measure_name)
 
     _logger.debug(
         "Writing to Timestream table %s in database %s\ncommon_attributes: %s\n, cols_names: %s\n, measure_types: %s",
@@ -521,7 +445,7 @@ def batch_load(
     measure_cols: List[str],
     measure_name_col: str,
     report_s3_configuration: TimestreamBatchLoadReportS3Configuration,
-    time_unit: Optional[str] = None,
+    time_unit: _TimeUnitLiteral = "MILLISECONDS",
     record_version: int = 1,
     timestream_batch_load_wait_polling_delay: float = _BATCH_LOAD_WAIT_POLLING_DELAY,
     keep_files: bool = False,
@@ -654,7 +578,7 @@ def batch_load_from_files(
     measure_types: List[str],
     measure_name_col: str,
     report_s3_configuration: TimestreamBatchLoadReportS3Configuration,
-    time_unit: Optional[str] = None,
+    time_unit: _TimeUnitLiteral = "MILLISECONDS",
     record_version: int = 1,
     data_source_csv_configuration: Optional[Dict[str, Union[str, bool]]] = None,
     timestream_batch_load_wait_polling_delay: float = _BATCH_LOAD_WAIT_POLLING_DELAY,
@@ -724,9 +648,6 @@ def batch_load_from_files(
     """
     timestream_client = _utils.client(service_name="timestream-write", session=boto3_session)
     bucket, prefix = _utils.parse_path(path=path)
-    time_unit = time_unit if time_unit else "MILLISECONDS"
-    if time_unit not in _TIME_UNITS:
-        raise exceptions.InvalidArgument(f"Invalid time unit: {time_unit}. Must be one of {_TIME_UNITS}.")
 
     kwargs: Dict[str, Any] = {
         "TargetDatabaseName": database,
@@ -734,7 +655,7 @@ def batch_load_from_files(
         "DataModelConfiguration": {
             "DataModel": {
                 "TimeColumn": time_col,
-                "TimeUnit": time_unit,
+                "TimeUnit": _check_time_unit(time_unit),
                 "DimensionMappings": [{"SourceColumn": c} for c in dimensions_cols],
                 "MeasureNameColumn": measure_name_col,
                 "MultiMeasureMappings": {
@@ -759,363 +680,3 @@ def batch_load_from_files(
         timestream_batch_load_wait_polling_delay=timestream_batch_load_wait_polling_delay,
         boto3_session=boto3_session,
     )
-
-
-@overload
-def query(
-    sql: str,
-    chunked: Literal[False] = ...,
-    pagination_config: Optional[Dict[str, Any]] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def query(
-    sql: str,
-    chunked: Literal[True],
-    pagination_config: Optional[Dict[str, Any]] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def query(
-    sql: str,
-    chunked: bool,
-    pagination_config: Optional[Dict[str, Any]] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
-def query(
-    sql: str,
-    chunked: bool = False,
-    pagination_config: Optional[Dict[str, Any]] = None,
-    boto3_session: Optional[boto3.Session] = None,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    """Run a query and retrieve the result as a Pandas DataFrame.
-
-    Parameters
-    ----------
-    sql: str
-        SQL query.
-    chunked: bool
-        If True returns DataFrame iterator, and a single DataFrame otherwise. False by default.
-    pagination_config: Dict[str, Any], optional
-        Pagination configuration dictionary of a form {'MaxItems': 10, 'PageSize': 10, 'StartingToken': '...'}
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    Union[pd.DataFrame, Iterator[pd.DataFrame]]
-        Pandas DataFrame https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
-
-    Examples
-    --------
-    Run a query and return the result as a Pandas DataFrame or an iterable.
-
-    >>> import awswrangler as wr
-    >>> df = wr.timestream.query('SELECT * FROM "sampleDB"."sampleTable" ORDER BY time DESC LIMIT 10')
-
-    """
-    result_iterator = _paginate_query(sql, chunked, cast("PaginatorConfigTypeDef", pagination_config), boto3_session)
-    if chunked:
-        return result_iterator
-
-    # Prepending an empty DataFrame ensures returning an empty DataFrame if result_iterator is empty
-    results = list(result_iterator)
-    if len(results) > 0:
-        # Modin's concat() can not concatenate empty data frames
-        return pd.concat(results, ignore_index=True)
-    return pd.DataFrame()
-
-
-def create_database(
-    database: str,
-    kms_key_id: Optional[str] = None,
-    tags: Optional[Dict[str, str]] = None,
-    boto3_session: Optional[boto3.Session] = None,
-) -> str:
-    """Create a new Timestream database.
-
-    Note
-    ----
-    If the KMS key is not specified, the database will be encrypted with a
-    Timestream managed KMS key located in your account.
-
-    Parameters
-    ----------
-    database: str
-        Database name.
-    kms_key_id: Optional[str]
-        The KMS key for the database. If the KMS key is not specified,
-        the database will be encrypted with a Timestream managed KMS key located in your account.
-    tags: Optional[Dict[str, str]]
-        Key/Value dict to put on the database.
-        Tags enable you to categorize databases and/or tables, for example,
-        by purpose, owner, or environment.
-        e.g. {"foo": "boo", "bar": "xoo"})
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    str
-        The Amazon Resource Name that uniquely identifies this database. (ARN)
-
-    Examples
-    --------
-    Creating a database.
-
-    >>> import awswrangler as wr
-    >>> arn = wr.timestream.create_database("MyDatabase")
-
-    """
-    _logger.info("Creating Timestream database %s", database)
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-    args: Dict[str, Any] = {"DatabaseName": database}
-    if kms_key_id is not None:
-        args["KmsKeyId"] = kms_key_id
-    if tags is not None:
-        args["Tags"] = [{"Key": k, "Value": v} for k, v in tags.items()]
-    response = client.create_database(**args)
-    return response["Database"]["Arn"]
-
-
-def delete_database(
-    database: str,
-    boto3_session: Optional[boto3.Session] = None,
-) -> None:
-    """Delete a given Timestream database. This is an irreversible operation.
-
-    After a database is deleted, the time series data from its tables cannot be recovered.
-
-    All tables in the database must be deleted first, or a ValidationException error will be thrown.
-
-    Due to the nature of distributed retries,
-    the operation can return either success or a ResourceNotFoundException.
-    Clients should consider them equivalent.
-
-    Parameters
-    ----------
-    database: str
-        Database name.
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    None
-        None.
-
-    Examples
-    --------
-    Deleting a database
-
-    >>> import awswrangler as wr
-    >>> arn = wr.timestream.delete_database("MyDatabase")
-
-    """
-    _logger.info("Deleting Timestream database %s", database)
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-    client.delete_database(DatabaseName=database)
-
-
-def create_table(
-    database: str,
-    table: str,
-    memory_retention_hours: int,
-    magnetic_retention_days: int,
-    tags: Optional[Dict[str, str]] = None,
-    timestream_additional_kwargs: Optional[Dict[str, Any]] = None,
-    boto3_session: Optional[boto3.Session] = None,
-) -> str:
-    """Create a new Timestream database.
-
-    Note
-    ----
-    If the KMS key is not specified, the database will be encrypted with a
-    Timestream managed KMS key located in your account.
-
-    Parameters
-    ----------
-    database: str
-        Database name.
-    table: str
-        Table name.
-    memory_retention_hours: int
-        The duration for which data must be stored in the memory store.
-    magnetic_retention_days: int
-        The duration for which data must be stored in the magnetic store.
-    tags: Optional[Dict[str, str]]
-        Key/Value dict to put on the table.
-        Tags enable you to categorize databases and/or tables, for example,
-        by purpose, owner, or environment.
-        e.g. {"foo": "boo", "bar": "xoo"})
-    timestream_additional_kwargs : Optional[Dict[str, Any]]
-        Forwarded to botocore requests.
-        e.g. timestream_additional_kwargs={'MagneticStoreWriteProperties': {'EnableMagneticStoreWrites': True}}
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    str
-        The Amazon Resource Name that uniquely identifies this database. (ARN)
-
-    Examples
-    --------
-    Creating a table.
-
-    >>> import awswrangler as wr
-    >>> arn = wr.timestream.create_table(
-    ...     database="MyDatabase",
-    ...     table="MyTable",
-    ...     memory_retention_hours=3,
-    ...     magnetic_retention_days=7
-    ... )
-
-    """
-    _logger.info("Creating Timestream table %s in database %s", table, database)
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-    timestream_additional_kwargs = {} if timestream_additional_kwargs is None else timestream_additional_kwargs
-    args: Dict[str, Any] = {
-        "DatabaseName": database,
-        "TableName": table,
-        "RetentionProperties": {
-            "MemoryStoreRetentionPeriodInHours": memory_retention_hours,
-            "MagneticStoreRetentionPeriodInDays": magnetic_retention_days,
-        },
-        **timestream_additional_kwargs,
-    }
-    if tags is not None:
-        args["Tags"] = [{"Key": k, "Value": v} for k, v in tags.items()]
-    response = client.create_table(**args)
-    return response["Table"]["Arn"]
-
-
-def delete_table(
-    database: str,
-    table: str,
-    boto3_session: Optional[boto3.Session] = None,
-) -> None:
-    """Delete a given Timestream table.
-
-    This is an irreversible operation.
-
-    After a Timestream database table is deleted, the time series data stored in the table cannot be recovered.
-
-    Due to the nature of distributed retries,
-    the operation can return either success or a ResourceNotFoundException.
-    Clients should consider them equivalent.
-
-    Parameters
-    ----------
-    database: str
-        Database name.
-    table: str
-        Table name.
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    None
-        None.
-
-    Examples
-    --------
-    Deleting a table
-
-    >>> import awswrangler as wr
-    >>> arn = wr.timestream.delete_table("MyDatabase", "MyTable")
-
-    """
-    _logger.info("Deleting Timestream table %s in database %s", table, database)
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-    client.delete_table(DatabaseName=database, TableName=table)
-
-
-def list_databases(
-    boto3_session: Optional[boto3.Session] = None,
-) -> List[str]:
-    """
-    List all databases in timestream.
-
-    Parameters
-    ----------
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    List[str]
-        a list of available timestream databases.
-
-    Examples
-    --------
-    Querying the list of all available databases
-
-    >>> import awswrangler as wr
-    >>> wr.timestream.list_databases()
-    ... ["database1", "database2"]
-
-
-    """
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-
-    response = client.list_databases()
-    dbs: List[str] = [db["DatabaseName"] for db in response["Databases"]]
-    while "NextToken" in response:
-        response = client.list_databases(NextToken=response["NextToken"])
-        dbs += [db["DatabaseName"] for db in response["Databases"]]
-
-    return dbs
-
-
-def list_tables(database: Optional[str] = None, boto3_session: Optional[boto3.Session] = None) -> List[str]:
-    """
-    List tables in timestream.
-
-    Parameters
-    ----------
-    database: str
-        Database name. If None, all tables in Timestream will be returned. Otherwise, only the tables inside the
-        given database are returned.
-    boto3_session : boto3.Session(), optional
-        Boto3 Session. The default boto3 Session will be used if boto3_session receive None.
-
-    Returns
-    -------
-    List[str]
-        A list of table names.
-
-    Examples
-    --------
-    Listing all tables in timestream across databases
-
-    >>> import awswrangler as wr
-    >>> wr.timestream.list_tables()
-    ... ["table1", "table2"]
-
-    Listing all tables in timestream in a specific database
-
-    >>> import awswrangler as wr
-    >>> wr.timestream.list_tables(DatabaseName="database1")
-    ... ["table1"]
-
-    """
-    client = _utils.client(service_name="timestream-write", session=boto3_session)
-    args = {} if database is None else {"DatabaseName": database}
-    response = client.list_tables(**args)  # type: ignore[arg-type]
-    tables: List[str] = [tbl["TableName"] for tbl in response["Tables"]]
-    while "nextToken" in response:
-        response = client.list_tables(**args, NextToken=response["NextToken"])  # type: ignore[arg-type]
-        tables += [tbl["TableName"] for tbl in response["Tables"]]
-
-    return tables
