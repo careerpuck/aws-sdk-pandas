@@ -22,9 +22,8 @@ _logger: logging.Logger = logging.getLogger(__name__)
 def _create_table(
     df: pd.DataFrame,
     database: str,
-    table: str,
     path: str,
-    query_table_properties: str,
+    create_sql_function: Callable[[str], str],
     wg_config: _WorkGroupConfig,
     index: bool = False,
     data_source: Optional[str] = None,
@@ -39,11 +38,7 @@ def _create_table(
     columns_types, _ = catalog.extract_athena_types(df=df, index=index)
     cols_str: str = ", ".join([f"{k} {v}" for k, v in columns_types.items()])
 
-    create_sql: str = (
-        f"CREATE TABLE IF NOT EXISTS {table} ({cols_str}) "
-        f"LOCATION '{path}' "
-        f"{query_table_properties}"
-    )
+    create_sql = create_sql_function(cols_str)
 
     query_id: str = _start_query_execution(
         sql=create_sql,
@@ -62,7 +57,7 @@ def _to_table(
     df: pd.DataFrame,
     database: str,
     table: str,
-    query_table_properties: str,
+    create_sql_function: Callable[[str], str],
     temp_path: Optional[str] = None,
     index: bool = False,
     table_location: Optional[str] = None,
@@ -89,10 +84,9 @@ def _to_table(
         # Create table if it doesn't exist
         if not catalog.does_table_exist(database=database, table=table, boto3_session=boto3_session):
             _create_table(
-                query_table_properties=query_table_properties,
+                create_sql_function=create_sql_function,
                 df=df,
                 database=database,
-                table=table,
                 path=table_location,  # type: ignore[arg-type]
                 wg_config=wg_config,
                 index=index,
@@ -228,13 +222,18 @@ def to_iceberg(
     ... )
 
     """
-    query_table_properties = "TBLPROPERTIES ( 'table_type' ='ICEBERG', 'format'='parquet' ) "
+    def create_sql_query(cols_str: str) -> str:
+        return (
+            f"CREATE TABLE IF NOT EXISTS {table} ({cols_str}) "
+            f"LOCATION '{table_location}' "
+            f"TBLPROPERTIES ( 'table_type' ='ICEBERG', 'format'='parquet' ) "
+        )
 
     _to_table(
         df=df,
         database=database,
         table=table,
-        query_table_properties=query_table_properties,
+        create_sql_function=create_sql_query,
         temp_path=temp_path,
         index=index,
         table_location=table_location,
@@ -334,17 +333,20 @@ def to_hudi(
     ... )
 
     """
-    query_table_properties = (
-        "ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' "
-        "STORED AS INPUTFORMAT 'org.apache.hudi.hadoop.HoodieParquetInputFormat' "
-        "OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat' "
-    )
+    def create_sql_query(cols_str: str) -> str:
+        return (
+            f"CREATE EXTERNAL TABLE {table} ({cols_str}) "
+            f"LOCATION '{table_location}' "
+            f"ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' "
+            f"STORED AS INPUTFORMAT 'org.apache.hudi.hadoop.HoodieParquetInputFormat' "
+            f"OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat' "
+        )
 
     _to_table(
         df=df,
         database=database,
         table=table,
-        query_table_properties=query_table_properties,
+        create_sql_function=create_sql_query,
         temp_path=temp_path,
         index=index,
         table_location=table_location,

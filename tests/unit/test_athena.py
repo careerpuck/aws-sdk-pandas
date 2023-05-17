@@ -1424,3 +1424,26 @@ def test_athena_to_iceberg(path, path2, glue_database, glue_table):
     )
 
     assert df.equals(df_out)
+
+
+def test_athena_to_hudi(path, path2, glue_database, glue_table):
+    df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    df["id"] = df["id"].astype("Int64")  # Cast as nullable int64 type
+    df["name"] = df["name"].astype("string")
+
+    wr.athena.to_hudi(
+        df=df,
+        database=glue_database,
+        table=glue_table,
+        table_location=path,
+        temp_path=path2,
+    )
+
+    df_out = wr.athena.read_sql_query(
+        sql=f'SELECT * FROM "{glue_table}" ORDER BY id',
+        database=glue_database,
+        ctas_approach=False,
+        unload_approach=False,
+    )
+
+    assert df.equals(df_out)
