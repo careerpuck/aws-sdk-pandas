@@ -25,7 +25,7 @@ from awswrangler.athena._utils import (  # noqa
     repair_table,
     show_create_table,
 )
-from awswrangler.athena._write_iceberg import to_iceberg
+from awswrangler.athena._write import to_iceberg, to_hudi
 
 
 __all__ = [
@@ -49,4 +49,5 @@ __all__ = [
     "unload",
     "wait_query",
     "to_iceberg",
+    "to_hudi",
 ]
