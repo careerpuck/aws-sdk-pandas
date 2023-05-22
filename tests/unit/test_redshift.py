@@ -3,7 +3,7 @@ import logging
 import random
 import string
 from decimal import Decimal
-from typing import Any, Dict, Iterator, List, Optional, Type
+from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import boto3
 import numpy as np
@@ -593,20 +593,20 @@ def test_spectrum_decimal_cast(
     # Athena
     df2 = wr.athena.read_sql_table(table=glue_table, database=glue_database)
     assert df2.shape == (2, 5)
-    df2 = df2.drop(df2[df2.c0 == 2].index)
-    assert df2.c1[0] == Decimal((0, (1, 0, 0, 0, 0, 0), -5))
-    assert df2.c2[0] == Decimal((0, (2, 2, 2, 2, 2, 2), -5))
-    assert df2.c3[0] == Decimal((0, (3, 3, 3, 3, 3, 3), -5))
+    df2 = df2[df2.c0 != 2].reset_index(drop=True)
+    assert df2.c1[0] == Decimal("1.00000")
+    assert df2.c2[0] == Decimal("2.22222")
+    assert df2.c3[0] == Decimal("3.33333")
     assert df2.c4[0] is None
 
     # Redshift Spectrum
     with wr.redshift.connect(connection="aws-sdk-pandas-redshift") as con:
         df2 = wr.redshift.read_sql_table(table=glue_table, schema=redshift_external_schema, con=con)
     assert df2.shape == (2, 5)
-    df2 = df2.drop(df2[df2.c0 == 2].index)
-    assert df2.c1[0] == Decimal((0, (1, 0, 0, 0, 0, 0), -5))
-    assert df2.c2[0] == Decimal((0, (2, 2, 2, 2, 2, 2), -5))
-    assert df2.c3[0] == Decimal((0, (3, 3, 3, 3, 3, 3), -5))
+    df2 = df2[df2.c0 != 2].reset_index(drop=True)
+    assert df2.c1[0] == Decimal("1.00000")
+    assert df2.c2[0] == Decimal("2.22222")
+    assert df2.c3[0] == Decimal("3.33333")
     assert df2.c4[0] is None
 
     # Redshift Spectrum Unload
@@ -618,10 +618,10 @@ def test_spectrum_decimal_cast(
             path=path2,
         )
     assert df2.shape == (2, 5)
-    df2 = df2.drop(df2[df2.c0 == 2].index)
-    assert df2.c1[0] == Decimal((0, (1, 0, 0, 0, 0, 0), -5))
-    assert df2.c2[0] == Decimal((0, (2, 2, 2, 2, 2, 2), -5))
-    assert df2.c3[0] == Decimal((0, (3, 3, 3, 3, 3, 3), -5))
+    df2 = df2[df2.c0 != 2].reset_index(drop=True)
+    assert df2.c1[0] == Decimal("1.00000")
+    assert df2.c2[0] == Decimal("2.22222")
+    assert df2.c3[0] == Decimal("3.33333")
     assert df2.c4[0] is None
 
 
@@ -904,6 +904,8 @@ def test_copy_from_files_extra_params(
 
 
 def test_get_paths_from_manifest(path: str) -> None:
+    from awswrangler.redshift._utils import _get_paths_from_manifest
+
     manifest_content = {
         "entries": [
             {"url": f"{path}test0.parquet", "mandatory": False},
@@ -915,9 +917,7 @@ def test_get_paths_from_manifest(path: str) -> None:
     boto3.client("s3").put_object(
         Body=bytes(json.dumps(manifest_content).encode("UTF-8")), Bucket=manifest_bucket, Key=manifest_key
     )
-    paths = wr.redshift._get_paths_from_manifest(
-        path=f"{path}manifest.json",
-    )
+    paths = _get_paths_from_manifest(path=f"{path}manifest.json")
 
     assert len(paths) == 3
 
@@ -948,8 +948,13 @@ def test_copy_from_files_manifest(
     assert df2["counter"].iloc[0] == 3
 
 
+@pytest.mark.parametrize("path_ignore_suffix", [".csv", [".csv"]])
 def test_copy_from_files_ignore(
-    path: str, redshift_table: str, redshift_con: redshift_connector.Connection, databases_parameters: Dict[str, Any]
+    path: str,
+    redshift_table: str,
+    redshift_con: redshift_connector.Connection,
+    databases_parameters: Dict[str, Any],
+    path_ignore_suffix: Union[str, List[str]],
 ) -> None:
     df = get_df_category().drop(["binary"], axis=1, inplace=False)
     wr.s3.to_parquet(df, f"{path}test.parquet")
@@ -957,7 +962,7 @@ def test_copy_from_files_ignore(
     boto3.client("s3").put_object(Body=b"", Bucket=bucket, Key=key)
     wr.redshift.copy_from_files(
         path=path,
-        path_ignore_suffix=".csv",
+        path_ignore_suffix=path_ignore_suffix,
         con=redshift_con,
         table=redshift_table,
         schema="public",
@@ -1327,6 +1332,29 @@ def test_to_sql_with_identity_column(redshift_table: str, redshift_con: redshift
     assert len(df_out) == len(df)
     assert df_out["id"].to_list() == list(range(1, len(df) + 1))
     assert df_out["foo"].to_list() == df["foo"].to_list()
+
+
+def test_unload_escape_quotation_marks(
+    path: str, redshift_table: str, redshift_con: redshift_connector.Connection, databases_parameters: Dict[str, Any]
+) -> None:
+    df = get_df().drop(["binary"], axis=1, inplace=False)
+    schema = "public"
+
+    wr.redshift.to_sql(
+        df=df,
+        con=redshift_con,
+        table=redshift_table,
+        schema=schema,
+        mode="overwrite",
+    )
+    df2 = wr.redshift.unload(
+        sql=f"SELECT * FROM public.{redshift_table} WHERE string = 'Seattle'",
+        con=redshift_con,
+        iam_role=databases_parameters["redshift"]["role"],
+        path=path,
+        keep_files=False,
+    )
+    assert len(df2) == 1
 
 
 @pytest.mark.parametrize("precision,scale", [(1, 0), (2, 1), (38, 0), (38, 20), (38, 37)])

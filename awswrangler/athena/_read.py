@@ -6,7 +6,7 @@ import logging
 import sys
 import uuid
 from datetime import date
-from typing import Any, Dict, Iterator, List, Literal, Optional, Union, cast, overload
+from typing import Any, Dict, Iterator, List, Optional, Union, cast
 
 import boto3
 import botocore.exceptions
@@ -592,61 +592,6 @@ def _unload(
     return query_metadata
 
 
-@overload
-def get_query_results(
-    query_execution_id: str,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Union[None, Literal[False]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def get_query_results(
-    query_execution_id: str,
-    *,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Literal[True],
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def get_query_results(
-    query_execution_id: str,
-    *,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: bool,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
-@overload
-def get_query_results(
-    query_execution_id: str,
-    *,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: int,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
 @apply_configs
 @_utils.validate_distributed_kwargs(
     unsupported_kwargs=["boto3_session"],
@@ -740,145 +685,6 @@ def get_query_results(
     raise exceptions.UndetectedType(f"""Unable to get results for: {query_info["Query"]}.""")
 
 
-@overload
-def read_sql_query(  # pylint: disable=too-many-arguments
-    sql: str,
-    database: str,
-    ctas_approach: bool = ...,
-    unload_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Union[None, Literal[False]] = ...,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    athena_query_wait_polling_delay: float = ...,
-    params: Optional[Dict[str, Any]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    database: str,
-    *,
-    ctas_approach: bool = ...,
-    unload_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Literal[True],
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    athena_query_wait_polling_delay: float = ...,
-    params: Optional[Dict[str, Any]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    database: str,
-    *,
-    ctas_approach: bool = ...,
-    unload_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: bool,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    athena_query_wait_polling_delay: float = ...,
-    params: Optional[Dict[str, Any]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    database: str,
-    *,
-    ctas_approach: bool = ...,
-    unload_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: int,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    athena_query_wait_polling_delay: float = ...,
-    params: Optional[Dict[str, Any]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_query(
-    sql: str,
-    database: str,
-    *,
-    ctas_approach: bool = ...,
-    unload_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Optional[Union[int, bool]],
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    athena_query_wait_polling_delay: float = ...,
-    params: Optional[Dict[str, Any]] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
 @apply_configs
 @_utils.validate_distributed_kwargs(
     unsupported_kwargs=["boto3_session", "s3_additional_kwargs"],
@@ -910,11 +716,11 @@ def read_sql_query(  # pylint: disable=too-many-arguments,too-many-locals
 
     **Related tutorial:**
 
-    - `Amazon Athena <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Amazon Athena <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/006%20-%20Amazon%20Athena.html>`_
-    - `Athena Cache <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Athena Cache <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/019%20-%20Athena%20Cache.html>`_
-    - `Global Configurations <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Global Configurations <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/021%20-%20Global%20Configurations.html>`_
 
     **There are three approaches available through ctas_approach and unload_approach parameters:**
@@ -978,7 +784,7 @@ def read_sql_query(  # pylint: disable=too-many-arguments,too-many-locals
     /athena.html#Athena.Client.get_query_execution>`_ .
 
     For a practical example check out the
-    `related tutorial <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    `related tutorial <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
     tutorials/024%20-%20Athena%20Query%20Metadata.html>`_!
 
 
@@ -1194,136 +1000,6 @@ def read_sql_query(  # pylint: disable=too-many-arguments,too-many-locals
     )
 
 
-@overload
-def read_sql_table(
-    table: str,
-    database: str,
-    *,
-    unload_approach: bool = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    ctas_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Union[None, Literal[False]] = ...,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> pd.DataFrame:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    database: str,
-    *,
-    unload_approach: bool = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    ctas_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Literal[True],
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    database: str,
-    *,
-    unload_approach: bool = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    ctas_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: bool,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    database: str,
-    *,
-    unload_approach: bool = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    ctas_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: int,
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Iterator[pd.DataFrame]:
-    ...
-
-
-@overload
-def read_sql_table(
-    table: str,
-    database: str,
-    *,
-    unload_approach: bool = ...,
-    unload_parameters: Optional[typing.AthenaUNLOADSettings] = ...,
-    ctas_approach: bool = ...,
-    ctas_parameters: Optional[typing.AthenaCTASSettings] = ...,
-    categories: Optional[List[str]] = ...,
-    chunksize: Optional[Union[int, bool]],
-    s3_output: Optional[str] = ...,
-    workgroup: Optional[str] = ...,
-    encryption: Optional[str] = ...,
-    kms_key: Optional[str] = ...,
-    keep_files: bool = ...,
-    use_threads: Union[bool, int] = ...,
-    boto3_session: Optional[boto3.Session] = ...,
-    athena_cache_settings: Optional[typing.AthenaCacheSettings] = ...,
-    data_source: Optional[str] = ...,
-    s3_additional_kwargs: Optional[Dict[str, Any]] = ...,
-    pyarrow_additional_kwargs: Optional[Dict[str, Any]] = ...,
-) -> Union[pd.DataFrame, Iterator[pd.DataFrame]]:
-    ...
-
-
 @apply_configs
 @_utils.validate_distributed_kwargs(
     unsupported_kwargs=["boto3_session", "s3_additional_kwargs"],
@@ -1353,11 +1029,11 @@ def read_sql_table(
 
     **Related tutorial:**
 
-    - `Amazon Athena <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Amazon Athena <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/006%20-%20Amazon%20Athena.html>`_
-    - `Athena Cache <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Athena Cache <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/019%20-%20Athena%20Cache.html>`_
-    - `Global Configurations <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    - `Global Configurations <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
       tutorials/021%20-%20Global%20Configurations.html>`_
 
     **There are three approaches available through ctas_approach and unload_approach parameters:**
@@ -1421,7 +1097,7 @@ def read_sql_table(
     /athena.html#Athena.Client.get_query_execution>`_ .
 
     For a practical example check out the
-    `related tutorial <https://aws-sdk-pandas.readthedocs.io/en/3.0.0/
+    `related tutorial <https://aws-sdk-pandas.readthedocs.io/en/3.1.1/
     tutorials/024%20-%20Athena%20Query%20Metadata.html>`_!
 
 
