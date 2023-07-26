@@ -26,7 +26,6 @@ _logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _get_write_details(path: str, pandas_kwargs: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str]]:
-    _logger.debug(f"DEBUG  KWARGS: {pandas_kwargs}")
     if pandas_kwargs.get("compression", "infer") == "infer":
         pandas_kwargs["compression"] = infer_compression(path, compression="infer")
     if pandas_kwargs.get("mode"):
@@ -63,9 +62,12 @@ def _to_text(  # pylint: disable=unused-argument
         file_path = path
     else:
         raise RuntimeError("path and path_root received at the same time.")
-    if pandas_mode:
-        pandas_kwargs['mode'] = pandas_mode
+
     mode, encoding, newline = _get_write_details(path=file_path, pandas_kwargs=pandas_kwargs)
+    if pandas_mode:
+        mode = pandas_mode
+    _logger.debug(f"mode: {mode}")
+
     with open_s3_object(
         path=file_path,
         mode=mode,
@@ -75,9 +77,7 @@ def _to_text(  # pylint: disable=unused-argument
         encoding=encoding,
         newline=newline,
     ) as f:
-        _logger.debug("pandas_kwargs: %s", pandas_kwargs)
         if file_format == "csv":
-            _logger.debug(f"pandas mode: {mode}")
             df.to_csv(f, mode=mode, **pandas_kwargs)
         elif file_format == "json":
             df.to_json(f, **pandas_kwargs)
@@ -564,7 +564,6 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
         pandas_kwargs["sep"] = sep
         pandas_kwargs["index"] = index
         pandas_kwargs["columns"] = columns
-        pandas_kwargs["mode"] = pandas_mode
         _to_text(
             df,
             file_format="csv",
@@ -572,6 +571,7 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
             path=path,
             s3_client=s3_client,
             s3_additional_kwargs=s3_additional_kwargs,
+            pandas_mode=pandas_mode,
             **pandas_kwargs,
         )
         paths = [path]  # type: ignore[list-item]
