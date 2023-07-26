@@ -26,9 +26,13 @@ _logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _get_write_details(path: str, pandas_kwargs: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str]]:
+    _logger.debug(f"DEBUG  KWARGS: {pandas_kwargs}")
     if pandas_kwargs.get("compression", "infer") == "infer":
         pandas_kwargs["compression"] = infer_compression(path, compression="infer")
-    mode: str = "w" if pandas_kwargs.get("compression") is None else "wb"
+    if pandas_kwargs.get("mode"):
+        mode: str = pandas_kwargs.get("mode")
+    else:
+        mode: str = "w" if pandas_kwargs.get("compression") is None else "wb"
     encoding: Optional[str] = pandas_kwargs.get("encoding", "utf-8")
     newline: Optional[str] = pandas_kwargs.get("lineterminator", "")
     return mode, encoding, newline
@@ -45,6 +49,7 @@ def _to_text(  # pylint: disable=unused-argument
     path_root: Optional[str] = None,
     filename_prefix: Optional[str] = None,
     bucketing: bool = False,
+    pandas_mode: Optional[str] = None,
     **pandas_kwargs: Any,
 ) -> List[str]:
     s3_client = s3_client if s3_client else _utils.client(service_name="s3")
@@ -58,7 +63,8 @@ def _to_text(  # pylint: disable=unused-argument
         file_path = path
     else:
         raise RuntimeError("path and path_root received at the same time.")
-
+    if pandas_mode:
+        pandas_kwargs['mode'] = pandas_mode
     mode, encoding, newline = _get_write_details(path=file_path, pandas_kwargs=pandas_kwargs)
     with open_s3_object(
         path=file_path,
@@ -71,6 +77,7 @@ def _to_text(  # pylint: disable=unused-argument
     ) as f:
         _logger.debug("pandas_kwargs: %s", pandas_kwargs)
         if file_format == "csv":
+            _logger.debug(f"pandas mode: {mode}")
             df.to_csv(f, mode=mode, **pandas_kwargs)
         elif file_format == "json":
             df.to_json(f, **pandas_kwargs)
@@ -105,6 +112,7 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
     glue_table_settings: Optional[GlueTableSettings] = None,
     athena_partition_projection_settings: Optional[typing.AthenaPartitionProjectionSettings] = None,
     catalog_id: Optional[str] = None,
+    pandas_mode: Optional[str] = None,
     **pandas_kwargs: Any,
 ) -> _S3WriteDataReturnValue:
     """Write CSV file or dataset on Amazon S3.
@@ -244,6 +252,9 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
     catalog_id : str, optional
         The ID of the Data Catalog from which to retrieve Databases.
         If none is provided, the AWS account ID is used by default.
+    pandas_mode : str, optional
+        Python write mode. The available write modes are the same as open().
+        https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html
     pandas_kwargs :
         KEYWORD arguments forwarded to pandas.DataFrame.to_csv(). You can NOT pass `pandas_kwargs` explicit, just add
         valid Pandas arguments in the function call and awswrangler will accept it.
@@ -560,6 +571,7 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
             path=path,
             s3_client=s3_client,
             s3_additional_kwargs=s3_additional_kwargs,
+            pandas_mode=pandas_mode,
             **pandas_kwargs,
         )
         paths = [path]  # type: ignore[list-item]

@@ -353,6 +353,18 @@ def test_csv_line_terminator(path, line_terminator):
     df2 = wr.s3.read_csv(file_path)
     assert df.equals(df2)
 
+def test_csv_pandas_mode(path):
+    file_path = f"{path}0.csv"
+    df = pd.DataFrame({"c0": [0, 1, 2], "c1": [3, 4, 5]}) 
+    df1 = pd.DataFrame({"c2": [0, 1, 2], "c3": [3, 4, 5]})
+    df2 = pd.concat([df, df1])
+    wr.s3.to_csv(df=df, path=file_path, index=False) 
+    wr.s3.to_csv(df=df1, path=file_path, index=False, pandas_mode='a')  
+    df3 = wr.s3.read_csv(file_path)
+    print(df2)
+    print(df3)
+    assert df2.equals(df3)
+
 
 def test_read_json_versioned(path) -> None:
     path_file = f"{path}0.json"

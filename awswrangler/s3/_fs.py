@@ -186,7 +186,7 @@ class _S3ObjectBase(io.RawIOBase):  # pylint: disable=too-many-instance-attribut
         self._encoding: str = "utf-8" if encoding is None else encoding
         self._bucket, self._key = _utils.parse_path(path=path)
         self._version_id = version_id
-        if mode not in {"rb", "wb", "r", "w"}:
+        if mode not in {"rb", "wb", "r", "w", "a"}:
             raise NotImplementedError(f"File mode must be {'rb', 'wb', 'r', 'w'}, not {mode}")
         self._mode: str = "rb" if mode is None else mode
         self._one_shot_download: bool = False
