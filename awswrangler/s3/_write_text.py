@@ -564,6 +564,7 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
         pandas_kwargs["sep"] = sep
         pandas_kwargs["index"] = index
         pandas_kwargs["columns"] = columns
+        pandas_kwargs["mode"] = pandas_mode
         _to_text(
             df,
             file_format="csv",
@@ -571,7 +572,6 @@ def to_csv(  # pylint: disable=too-many-arguments,too-many-locals,too-many-state
             path=path,
             s3_client=s3_client,
             s3_additional_kwargs=s3_additional_kwargs,
-            pandas_mode=pandas_mode,
             **pandas_kwargs,
         )
         paths = [path]  # type: ignore[list-item]
