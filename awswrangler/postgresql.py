@@ -414,7 +414,7 @@ def to_sql(
             )
             for placeholders, parameters in placeholder_parameter_pair_generator:
                 sql: str = f'INSERT INTO "{schema}"."{table}" {insertion_columns} VALUES {placeholders}{upsert_str}'
-                _logger.debug("sql: %s", sql)
+                _logger.debug("sql: %s", sql, parameters)
                 cursor.executemany(sql, (parameters,))
             con.commit()
     except Exception as ex:
